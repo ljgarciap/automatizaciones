@@ -1,0 +1,112 @@
+{
+  "name": "Cooperativa - Conciliación Universal (Simple All-at-once)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "conciliacion-excel",
+        "options": {}
+      },
+      "id": "2e41c4d7-ffe8-466d-8022-533975c1ae5b",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "a32a8997-4071-4508-8dbf-5811b1a2e968"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "ccb16355-1754-49b6-a5af-0bd443f26756",
+      "name": "Read Spreadsheet",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [
+        256,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const limpiarNumero = (valor) => {\n  if (typeof valor === 'number') return valor;\n  if (!valor || valor === \"-\") return 0;\n  let limpio = valor.toString().replace(/,/g, '').replace('$', '');\n  return parseFloat(limpio) || 0;\n};\n\nconst excelDateToISO = (serial) => {\n  if (!serial || isNaN(serial)) return serial;\n  if (typeof serial === 'number' && serial > 30000) {\n    return new Date(Math.round((serial - 25569) * 86400 * 1000)).toISOString().split('T')[0];\n  }\n  return serial;\n};\n\nconst body = $node[\"Webhook Trigger\"].json.body || {};\n\n// Procesamos todos los ítems recibidos del nodo anterior\nconst items = $input.all();\nconst processedItems = items.map(item => {\n  const row = item.json;\n  return {\n    banco: body.banco || 'BANCO_DEMO',\n    mes: body.mes || 'ACTUAL',\n    anio: body.anio || 2026,\n    fuente: (body.fuente || 'EXTRACTO').toUpperCase(),\n    fecha: excelDateToISO(row.fecha || row.FECHA || new Date().toISOString()),\n    descripcion: row.descripcion || row.DESCRIPCIÓN || row.detalle || 'SIN DESCRIPCIÓN',\n    valor: limpiarNumero(row.valor || row.VALOR || row.monto || row.MONTO),\n    identificacion: row.identificacion || row.IDENTIFICACIÓN || 'N/A',\n    referencia: row.referencia || row.REFERENCIA || '',\n    nombre_archivo: body.nombre_archivo || 'archivo_desconocido.xlsx'\n  };\n});\n\nreturn { processedItems };"
+      },
+      "id": "f07aa3d2-d516-45d2-923a-aab8520e68a2",
+      "name": "Aggregate and Map All",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://apicooperativa.softclass.co/api/conciliaciones-batch",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.processedItems) }}",
+        "options": {}
+      },
+      "id": "82425255-ec88-4913-9bca-199aed1c38c1",
+      "name": "Push Everything to Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        752,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Spreadsheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Spreadsheet": {
+      "main": [
+        [
+          {
+            "node": "Aggregate and Map All",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate and Map All": {
+      "main": [
+        [
+          {
+            "node": "Push Everything to Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "77bcaa9f-b300-42ab-bbbb-4bde4064c4f2",
+  "meta": {
+    "instanceId": "12bf7a84e842b6d2299eb062c6a2b8d1e20a90ea68d980ab31c619edc9f028e8"
+  },
+  "id": "33ua9sZvLRsLS7SdMI82i",
+  "tags": []
+}

@@ -1,0 +1,279 @@
+{
+  "name": "Cooperativa - AI PDF Extractor (Fixed)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "credito-pdf",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "9abfc01d-a338-41b2-a393-1421b71bd586",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1024,
+        128
+      ],
+      "webhookId": "24165085-70bf-4f8a-86cb-e73654ddda2b"
+    },
+    {
+      "parameters": {
+        "options": {
+          "batch": false
+        }
+      },
+      "id": "895f9b36-8d26-4bf9-bd99-1e8604771147",
+      "name": "Mistral OCR Extraction",
+      "type": "n8n-nodes-base.mistralAi",
+      "typeVersion": 1,
+      "position": [
+        -832,
+        128
+      ],
+      "credentials": {
+        "mistralCloudApi": {
+          "id": "dPmVTTuY3pvPZaYj",
+          "name": "Mistral Cloud account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.mistral.ai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "mistral-small-latest"
+            },
+            {
+              "name": "messages",
+              "value": "={{ \n[\n  {\n    \"role\": \"user\",\n    \"content\": \"Extrae la información completa del siguiente texto y devuélvela estrictamente en formato JSON. Incluye todos los campos disponibles sin omitir ninguno. Si un campo no tiene valor, usa null. Esquema requerido: { \\\"identificacion\\\": \\\"\\\", \\\"nombre\\\": \\\"\\\", \\\"monto\\\": \\\"\\\", \\\"tipo\\\": \\\"\\\", \\\"observaciones\\\": \\\"\\\" } Texto a procesar: \" + $json.pages.map(p => p.markdown).join('\\n')\n  }\n] \n}}"
+            },
+            {
+              "name": "response_format",
+              "value": "={{ {\"type\": \"json_object\"} }}"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          }
+        }
+      },
+      "id": "3dc62603-7d7b-415e-8838-114b0c833312",
+      "name": "Mistral AI Extraction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -624,
+        128
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "ZmhNATF0vGQfKowg",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json.choices[0].message.content;\ntry {\n  const data = JSON.parse(response);\n  \n  const limpiarNumero = (valor) => {\n    if (typeof valor === 'number') return valor;\n    if (!valor || valor === \"-\" || valor === \"\") return 0;\n    let limpio = valor.toString().replace(/[^0-9]/g, '');\n    return parseFloat(limpio) || 0;\n  };\n\n  const isMissingData = (!data.nombre || data.nombre === \"\" || !data.identificacion || data.identificacion === \"\");\n\n  return {\n    identificacion: (data.identificacion || \"\").toString(),\n    nombre: (data.nombre || 'NO DETECTADO').toUpperCase(),\n    monto: limpiarNumero(data.monto),\n    tipo: (data.tipo || 'NO ESPECIFICADO').toUpperCase(),\n    observaciones: data.observaciones || 'Extraído por Agente IA',\n    nombre_archivo: $node[\"Webhook Trigger\"].json.body.nombre_archivo || 'pdf_adjunto.pdf',\n    is_error: isMissingData\n  };\n} catch (e) {\n  return {\n    identificacion: \"\",\n    nombre: \"ERROR PARSE\",\n    monto: 0,\n    tipo: \"ERROR\",\n    observaciones: \"Error parseando JSON: \" + e.message,\n    nombre_archivo: $node[\"Webhook Trigger\"].json.body.nombre_archivo || 'pdf_adjunto.pdf',\n    is_error: true\n  };\n}"
+      },
+      "id": "ff6f3bb6-58cf-4fd9-8839-163fab7c3f25",
+      "name": "Data Cleaning",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -432,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "abc",
+                    "leftValue": "={{ $json.is_error }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "error"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "ebe5a938-de3d-438e-8e5b-af0afa16e1c8",
+                    "leftValue": "={{ $json.is_error }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "false",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "success"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "id": "fc8a88df-af6f-4e18-b78c-aae5479dbe78",
+      "name": "Check Error",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -224,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"error\",\n  \"message\": \"No se pudieron extraer los datos obligatorios (Nombre/ID) del PDF.\",\n  \"data\": {{ JSON.stringify($json) }}\n}",
+        "options": {}
+      },
+      "id": "88fbccac-a8fd-4c2a-b3e1-cc5b4228e80a",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"success\",\n  \"message\": \"Procesado correctamente\",\n  \"data\": {{ JSON.stringify($json) }}\n}",
+        "options": {}
+      },
+      "id": "7cdadeb9-144b-4404-9b7b-8cef134279a3",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        176,
+        144
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Mistral OCR Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mistral OCR Extraction": {
+      "main": [
+        [
+          {
+            "node": "Mistral AI Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mistral AI Extraction": {
+      "main": [
+        [
+          {
+            "node": "Data Cleaning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data Cleaning": {
+      "main": [
+        [
+          {
+            "node": "Check Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Error": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "56014aac-f9f9-470f-ab49-a2466994adda",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "12bf7a84e842b6d2299eb062c6a2b8d1e20a90ea68d980ab31c619edc9f028e8"
+  },
+  "id": "1WkVuwUDxt1kS3-_cry6u",
+  "tags": []
+}
